@@ -1,5 +1,6 @@
 *.pyc
 *.py~
 output/
+myNet/
 *.ply
 *.hdf5
