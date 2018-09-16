@@ -1,0 +1,5 @@
+kpts: 3
+head: 1
+legs: 4*3 = 12
+tail: 3
+ total: 19

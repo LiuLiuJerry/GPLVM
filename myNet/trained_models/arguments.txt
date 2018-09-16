@@ -1,0 +1,1 @@
+Namespace(ADAM_BETA_D=0.5, ADAM_BETA_G=0.5, LEARNING_RATE_G=5e-05, batch_size=4, checkpoint=None, decayEpoch=50, densityWeight=1.0, epoch=200, example_num=40, generate_num=2048, gpu=0, mode='train', nnk=8, output_dir=None, point_num_in=19, point_num_out=2048, radiusScal=1.0, test_hdf5='data_hdf5/horse2048_test.hdf5', train_hdf5='data_hdf5/horse2048_train.hdf5')

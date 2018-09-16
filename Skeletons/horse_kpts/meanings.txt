@@ -1,0 +1,11 @@
+    % key points  3 £¬´ÓºóÍùÇ°
+    kpts = reshape(Xkpts(ii, :), [n_imptpts, 3]);
+    % head 1
+    xyz_heads = reshape(Xh(ii,:), [nbones_h, 3]);
+    % legs   4*3
+    xyz_legsf_l = reshape( Xf(ii, :), [nbones_leg, 3]);
+    xyz_legsf_r = reshape( Xf(cnt_models+ii, :), [nbones_leg, 3]);
+    xyz_legsb_l = reshape(Xb(ii, :), [nbones_leg, 3]);
+    xyz_legsb_r = reshape(Xb(cnt_models+ii, :), [nbones_leg, 3]);
+    % tail   3
+    xyz_tail = reshape(Xt(ii,:), [nbones_t, 3]);
