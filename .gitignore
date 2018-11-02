@@ -2,5 +2,6 @@
 *.py~
 output/
 myNet/
+Skeletons/
 *.ply
 *.hdf5
