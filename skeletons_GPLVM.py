@@ -193,7 +193,7 @@ if __name__ == '__main__':
     m = gpflow.gplvm.BayesianGPLVM(X_mean=X_mean, X_var=X_var, Y=Y, kern=k, M=M, Z=Z)
     linit = m.compute_log_likelihood()
     #m.optimize(method = tf.train.GradientDescentOptimizer(0.02))
-    m.optimize(maxiter=10)
+    m.optimize(maxiter=20)
 
     embeds = np.array(m.X_mean.value)
     n1= 31

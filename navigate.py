@@ -19,6 +19,8 @@ from gpflow.param import Param
 from gpflow.model import Model
 from gpflow._settings import settings
 from gpflow import session as session_mngr
+from gpflow.mean_functions import Zero
+from gpflow import likelihoods
 
 float_type = settings.dtypes.float_type
 np_float_type = np.float32 if float_type is tf.float32 else np.float64
@@ -26,7 +28,6 @@ np_float_type = np.float32 if float_type is tf.float32 else np.float64
 class Navigate(Model):
     def __init__(self, embeds, skeletons, dist, m, name='Model'):
         Model.__init__(self, name)
-        self.embeds = embeds
         self.skeletons = skeletons
         self.dist_embeds = dist
         self.nkpts = len(skeletons[0,:])
@@ -34,12 +35,15 @@ class Navigate(Model):
         self.dist_skeletons = np.ones([self.npts,self.npts])*-1
         embeds = np.array(m.X_mean.value)
         self.X_mean = Param(embeds)
-        self.Z = Param(deepcopy(m.Z.value))
+        self.Z = Param(np.array(m.Z.value))
         self.kern = deepcopy(m.kern)
-        self.X_var = Param(deepcopy(m.X_var.value))
+        self.X_var = Param(np.array(m.X_var.value))
         self.Y = m.Y
-        self.likelihood = m.likelihood
-        self.mean_function = m.mean_function
+        self.likelihood = likelihoods.Gaussian()
+        self.mean_function = Zero()
+
+        self.likelihood._check_targets(self.Y.value)
+        self._session = None
 
         self.X_mean.fixed = True
         self.Z.fixed = True
@@ -97,7 +101,7 @@ class Navigate(Model):
         var_loss = 0.0
         len_loss = 0.0
         for i in range(plen):
-            var_loss = var_loss + cal_varience(pos, self.embeds)
+            var_loss = var_loss + cal_varience(pos, self.X_mean)
 
         pS = np.concatenate((pStart, pos[:-1,:]), axis=0)
         pE = np.concatenate((pos[1:,:], pend), axis=0)
@@ -113,7 +117,7 @@ class Navigate(Model):
 
 
     def locate_skeletons(self, new_ske):
-        embeds = self.embeds
+        embeds = self.X_mean.value
         skeletons = self.skeletons
         new_ske = new_ske.reshape([-1, self.nkpts, 3])
         
@@ -171,7 +175,7 @@ class Navigate(Model):
 
     def compile(self, session=None, graph=None, optimizer=None):
 
-        out_filename = settings.profiling.output_file_name + "_objective"
+        '''out_filename = settings.profiling.output_file_name + "_objective"
 
         default_session = tf.get_default_session()
         if session is None:
@@ -180,9 +184,10 @@ class Navigate(Model):
                 session = default_session
         if session is None:
             session = session_mngr.get_session(
-                graph=graph, output_file_name=out_filename)
-
-        with session.graph.as_default():
+                graph=graph, output_file_name=out_filename)'''
+        g = tf.Graph()
+        session = tf.Session(graph=g)
+        with g.as_default():
             self._free_vars = tf.Variable(self.get_free_state())
             '''for p in self.sorted_params:
                 print('>>>>>>>>>>>>>>> p', p)'''
