@@ -11,6 +11,7 @@ import matplotlib.gridspec as gridspec
 from mpl_toolkits.mplot3d import Axes3D
 import tensorflow as tf
 from scipy.spatial.distance import cdist, squareform
+from matplotlib.widgets import Button
 
 # %matplotlib inline
 import pods
@@ -76,11 +77,15 @@ def on_button_press(event):
     global bool_drawing
     global pointSet
     global Nav
-    if event.inaxes == None:
+    global key_list
+
+    n_sample = 5
+    if event.inaxes==None or event.inaxes==axgen or event.inaxes==axnav or event.inaxes==axloc:
         return 
 
-    for i in range(3):
+    for i in range(3): 
         if  np.in1d(event.inaxes, f_axes[i]): 
+            print('\n>>>>>>>>>>>> choose drawing window...')
             ax_chosen.spines['top'].set_visible(False)
             ax_chosen.spines['bottom'].set_visible(False)
             print('choose axes')
@@ -97,8 +102,6 @@ def on_button_press(event):
     y = event.ydata
     print('\t position: ', x, y)
     newX = np.array([x,y]).reshape([-1,2])
-    var = Nav.cal_variance(newX)
-    print('\t var of the position', var)
     
     ax = event.inaxes
     ax.plot([x], [y],'r.',markersize=5)
@@ -127,39 +130,138 @@ def on_button_press(event):
         #key_idx = np.arange(0,5)*10
         key_idx = navigate.resample(spline,5)
         key_idx = np.append(key_idx,[49],axis=0)
-        key_spl = spline[key_idx,:]
-        main_ax.scatter(key_spl[:,0], key_spl[:,1], s=50, c='red')
+        key_list = spline[key_idx,:]
+        main_ax.scatter(key_list[:,0], key_list[:,1], s=50, c='red')
         event.canvas.draw()
-
-        mu_fFull, var_fFull = m.predict_f_full_cov(key_spl) 
-        nametosave = []
-        for xx in key_spl:
-            nametosave.append(str(xx[0])[:4]+'_'+str(xx[1])[:4])
-        thread_Generate.generateModels(mu_fFull, key_spl, embeds, pointSet, sess, model, nametosave)
 
         bool_drawing = False
     else:
+        key_list = []
         preX = newX
         bool_drawing = True
 
-    print('\t newX generated', newX)
-    mu_fFull, var_fFull = m.predict_f_full_cov(newX)
-    newxyz = np.reshape(mu_fFull, (1, D, 3)) #新的骨架
-    # new shapes : get horses here
-    nametosave = str(x)[:4]+'_'+str(y)[:4]
-    neighbor_horse = thread_Generate.find_neighbor(newX, embeds, pointSet)
-    neighbor_horse = np.reshape(neighbor_horse, [1, 2048, 3])
-    horse_xyz = gen_horse2horse.gen_horses(sess, model, newxyz, neighbor_horse, mustSavePly, nametosave)
-
-    ax_skeleton.clear()
-    ax_horse.clear()
-    ax_skeleton.axis('off') 
-    ax_horse.axis('off') 
-
-    plot_skeleton(newxyz[0], ax_skeleton)
-    ax_horse.scatter(horse_xyz[:,0], horse_xyz[:,2], horse_xyz[:,1], s = 1)
+    print('\t newX choosed', newX)
 
     event.canvas.draw()
+
+    var = Nav.cal_variance(newX)
+    var = np.array(var)
+    print('\t var of the position: ', var[0,0,0])
+
+
+class Index(object):
+    ind = 0
+
+    def generate(self, event):
+
+        global key_list
+        global preX
+        global embeds
+        global main_ax
+        global bool_drawing
+        global pointSet
+        global Nav
+
+
+        if len(key_list) > 0:
+            print('\n>>>>>>>>>>>> generating shapes on a path...')
+
+            mu_fFull, var_fFull = m.predict_f_full_cov(key_list) 
+            nametosave = []
+            for xx in key_list:
+                nametosave.append(str(xx[0])[:4]+'_'+str(xx[1])[:4])
+            thread_Generate.generateModels(mu_fFull, key_list, embeds, pointSet, sess, model, nametosave)
+            key_list = []
+
+        else:
+            print('\n>>>>>>>>>>>> generating a single shape...')
+            newX = preX
+            mu_fFull, var_fFull = m.predict_f_full_cov(newX)
+            newxyz = np.reshape(mu_fFull, (1, D, 3)) #新的骨架
+            # new shapes : get horses here
+            nametosave = str(newX[:,0])[:4]+'_'+str(newX[:,1])[:4]
+            neighbor_horse = thread_Generate.find_neighbor(newX, embeds, pointSet)
+            neighbor_horse = np.reshape(neighbor_horse, [1, 2048, 3])
+            horse_xyz = gen_horse2horse.gen_horses(sess, model, newxyz, neighbor_horse, mustSavePly, nametosave)
+
+            ax_skeleton.clear()
+            ax_horse.clear()
+            ax_skeleton.axis('off') 
+            ax_horse.axis('off') 
+
+            plot_skeleton(newxyz[0], ax_skeleton)
+            ax_horse.scatter(horse_xyz[:,0], horse_xyz[:,2], horse_xyz[:,1], s = 1)
+
+        plt.draw()
+        bool_drawing = False
+
+    def navigate(self, event):
+        global Nav
+        global main_ax
+        global key_list
+
+        n_nav = 10
+        print('\n>>>>>>>>>>>> generating neighbors...')
+        for i in range(n_nav):
+            
+            res = Nav.optimize(method = tf.train.GradientDescentOptimizer(0.0001))
+            p = res['x']
+            fetches = res['fun']
+            print('\t optimize result\n', res)
+            main_ax.plot(p[0], p[1], 'r*',markersize=5)
+            plt.draw()
+            
+            '''tmp = Nav.P_nbs
+            if len(tmp)==0:
+                P_nbs = p.reshape([-1,2])
+            else:
+                P_nbs = np.append(tmp, p.reshape([-1,2]), axis=0)
+            Nav.Pnew = Param(np.array(Pnew, ndmin=2))
+            Nav.P_nbs = P_nbs'''
+            print('\t neighbor: ', p)
+            #print('\t Pnew: ', Nav.Pnew.value)
+            Nav.P_update()
+            #res = Nav.debug()
+            #print('\t debug result\n', res)
+        
+        key_list = Nav.P_nbs
+        print('\n\t P_nbs: ', key_list)
+
+    def locate(self, event):
+        global embeds
+        global skeletons
+        global dist
+        global m
+        global main_ax
+        global Nav
+
+        print('\n>>>>>>>>>>>> locating skeletons...')
+        n1= 15
+        n2 = 16
+        print('\t choosed embeds', embeds[[n1,n2],:])
+
+        locator = navigate.Locator(embeds, skeletons, dist, m)
+
+        ske = (skeletons[n1,:]+skeletons[n2,:])/2
+        locator.locate_skeletons(ske)
+        #final_X = Nav.optimize(method = tf.train.GradientDescentOptimizer(0.02))
+        results = locator.optimize(method = tf.train.GradientDescentOptimizer(0.0001))
+        
+        final_X = results['x']
+        xx_ske = embeds[[n1,n2],:]
+        print('\t two initial position', xx_ske)
+        print('\t new position located', final_X)
+        print('\t locate results:\n', results)
+        main_ax.scatter(xx_ske[:,0], xx_ske[:,1], s=50, alpha=0.3)
+        main_ax.scatter(final_X[0], final_X[1], s=30, alpha=0.3)
+        plt.draw()
+
+        print('\n>>>>>>>>>>>> prepare for navigating...')
+        Nav = navigate.Navigator(embeds, m)
+        Nav.navigate_from(final_X)
+        #res = Nav.debug()
+        #print('\t res', res)        
+        
         
 
 np.random.seed(42)  #用于指定随机数生成时所用算法开始的整数值
@@ -193,13 +295,10 @@ if __name__ == '__main__':
     m = gpflow.gplvm.BayesianGPLVM(X_mean=X_mean, X_var=X_var, Y=Y, kern=k, M=M, Z=Z)
     linit = m.compute_log_likelihood()
     #m.optimize(method = tf.train.GradientDescentOptimizer(0.02))
-    m.optimize(maxiter=20)
+    m.optimize()
 
     embeds = np.array(m.X_mean.value)
-    n1= 31
-    n2 = 36
-    print('\t choosed embeds', embeds[[n1,n2],:])
-    ############################  PCA  ################################
+
     print('\n>>>>>>>>>>>> computing main direction by pca...')
     main_dir =  navigate.pca(embeds, 0.8)
     min_idx = np.argmin(main_dir)
@@ -208,7 +307,9 @@ if __name__ == '__main__':
 
     #print('X_mean by GPLVM: ', m.X_mean.value.shape)
     #assert(m.compute_log_likelihood() > linit)
-    #################################  floyd ###########################
+
+
+
     print('\n>>>>>>>>>>>> computing shortest path...')
     floyd_res = floyd.calculate_floyd(embeds)
     dist = floyd_res[0]
@@ -216,22 +317,13 @@ if __name__ == '__main__':
     edges = np.array(floyd_res[2])
     print('\t size of edges', edges.shape)
 
-    ################################## locate shapes ################################
-    print('\n>>>>>>>>>>>> locating skeletons...')
 
-    Nav = navigate.Navigate(embeds, skeletons, dist, m)
-
-    ske = (skeletons[n1,:]+skeletons[n2,:])/2
-    Nav.locate_skeletons(ske)
-    #final_X = Nav.optimize(method = tf.train.GradientDescentOptimizer(0.02))
-    final_X = Nav.optimize(max_iters=100)['x']
-    xx_ske = embeds[[n1,n2],:]
-    print('\t two initial position', xx_ske)
-    print('\t new position located', final_X)
-    print('\t shape of embeds', embeds.shape)
     ######################################################  figure  ##############
-    print('\n>>>>>>>>>>>> ploting...')
+    print('\n>>>>>>>>>>>> prepare plot inits...')
     bool_drawing = False
+    key_spl = []
+
+    print('\n>>>>>>>>>>>> ploting...')
     fig = plt.figure(figsize=(10,5))
     plt.subplots_adjust(left=0.05, right=0.95, top=0.9, bottom=0.1)
     grid = gridspec.GridSpec(3, 5, wspace=0.05)
@@ -239,8 +331,7 @@ if __name__ == '__main__':
     ## 主图
     main_ax = fig.add_subplot(grid[:, 0:3])
     main_ax.scatter(embeds[:,0], embeds[:,1], s=5) #floyd
-    main_ax.scatter(xx_ske[:,0], xx_ske[:,1], s=50, alpha=0.3)
-    main_ax.scatter(final_X[0], final_X[1], s=30, alpha=0.3)
+
     '''for i in range(len(edges[0])):
         e = [edges[0][i], edges[1][i]]
         #print('>>>>>>>>>>>>> e', e)
@@ -250,6 +341,19 @@ if __name__ == '__main__':
     fig.canvas.mpl_connect('button_press_event', on_button_press)
     main_ax.set_title('Bayesian GPLVM')
     main_ax.axis('on')
+
+
+    callback = Index()
+    axgen = plt.axes([0.6, 0.03, 0.09, 0.045])
+    axloc = plt.axes([0.7, 0.03, 0.09, 0.045])
+    axnav = plt.axes([0.8, 0.03, 0.09, 0.045])
+    bgen = Button(axgen, 'generate')
+    bgen.on_clicked(callback.generate)  
+    bloc = Button(axloc, 'locate')
+    bloc.on_clicked(callback.locate)
+    bnav = Button(axnav, 'navigate')
+    bnav.on_clicked(callback.navigate)
+
     ## 侧面的图
     f_axes = []
     for i in range(3):
