@@ -285,29 +285,55 @@ class Navigator(Model):
         return opt_step
 
 
-    def navigate_from(self, Pnew, r=0.1):
+    def navigate_from(self, Pnew, n, r=0.1):
         self.r2 = r*r
-        self.P_nbs = np.array([])
+        self.P_path = np.array([Pnew]).reshape([-1,2])
         Pnew = Pnew.reshape([1,2])
-        self.Pnew = Param(np.array(Pnew))
+        self.Pnew = Param(np.tile(Pnew, (n,1)) )
         self.Pinit = Param(np.array(Pnew))
-        self.Pinit.fixed = True   
+        self.Pinit.fixed = True  
+        self.n = n 
 
-    def P_update(self):
-        tmp = self.P_nbs
-        p = self.Pnew.value
-        if len(tmp)==0:
-            P_nbs = p.reshape([-1,2])
-        else:
-            P_nbs = np.append(tmp, p.reshape([-1,2]), axis=0)
+    def navigate(self, delta=0.1):
+        def _find_neighbors(P, n=8):
+            embeds = self.X_mean.value
+            dist = np.sum(np.square(P-embeds),axis=-1)
+            dist = np.sqrt(dist)
+            idx = np.argsort(dist)  
+            nei = embeds[idx[:n+1], :]
+            return nei, dist[idx[:n+1]]
 
-        self.P_nbs = P_nbs 
-        self._needs_recompile = True 
-        
+        n = 8
+        Pnew = self.Pnew.value
+        X, dist = _find_neighbors(Pnew, n)
+        print('\t dist', dist)
+        A = 0.04
+        B = 2
+        dist = dist.reshape([-1,1])
+        F = A/(np.power(dist, 1.2)) - B/np.power(dist,0.2)
+        F = np.minimum(F, 0.1)
+        pdir = Pnew-X
+        pdir = pdir/dist
+        t = delta
+        xx = 0.5*t*t*F
+        xx = np.sum(pdir*xx, axis=0)
+
+        p, W = pca(X, n=1)
+        W = W.reshape([2])
+        W = W/np.sqrt(np.sum(W*W))
+        if len(self.P_path) > 1  and W.dot(self.P_path[-1,:]-self.P_path[-2,:]) < 0:
+            W = -1*W
+        Pnew = self.Pnew.value + W*delta + xx
+        self.Pnew = Param(Pnew)
+        self.P_path = np.append(self.P_path, Pnew, axis=0)
+
+        return Pnew, W*0.1, xx
+
+       
 
     def _navigate_loss(self):
         alpha = 1
-        beta = 10  
+        beta = 0  
         gamma = 50
 
         full_cov=True  
@@ -344,75 +370,58 @@ class Navigator(Model):
         var_loss = tf.reduce_mean(var)
 
         dist2 = tf.reduce_sum(tf.square(self.Pnew-self.Pinit))
-        dist_loss = tf.abs(dist2-self.r2)
+        dist_loss = tf.maximum(dist2-self.r2, tf.constant(0.0, dtype=tf.float64))
 
-        if len(self.P_nbs) == 0:
-            dist_nbs_loss = tf.constant(0.0, dtype=tf.float64)
-        else:
-            dist_nbs2 = tf.reduce_sum(tf.square(self.Pnew-self.P_nbs), axis=-1)
-            dist_min2 = tf.reduce_min(dist_nbs2)
-            dist_nbs = self.r2 - dist_min2
-            dist_nbs_loss = tf.maximum(dist_nbs, tf.constant(0.0, dtype=tf.float64))
+        def pairwise_l2_norm2_batch(x, y, scope=None):
+            nump_x = tf.shape(x)[0]
+            nump_y = tf.shape(y)[0]
+
+            xx = tf.expand_dims(x, -1)
+            xx = tf.tile(xx, tf.stack([1, 1, nump_y]))
+
+            yy = tf.expand_dims(y, -1)
+            yy = tf.tile(yy, tf.stack([1, 1, nump_x]))
+            yy = tf.transpose(yy, perm=[2, 1, 0])
+
+            diff = tf.subtract(xx, yy)
+            square_diff = tf.square(diff)
+
+            square_dist = tf.reduce_sum(square_diff, 1)
+
+            return square_dist
+
+        pts = tf.concat([self.Pnew, tf.reshape(self.Pinit,[1,2]) ], axis=0)
+        square_dist = pairwise_l2_norm2_batch(pts, pts)
+        
+        nnk = tf.nn.top_k(tf.negative(square_dist), k=2)
+        print(nnk.values)
+        minRow = nnk.values[:,1]
+        min_dist = self.r2 + minRow
+
+        '''minRow = tf.reduce_mean(square_dist, axis = -1)
+        min_dist = self.r2-minRow'''
+        dist_nbs_loss = tf.reduce_mean(tf.maximum(min_dist, tf.constant(0.0, dtype=tf.float64)) )
 
         loss = gamma*dist_nbs_loss + alpha*var_loss + beta*dist_loss
-        #loss = beta*dist_loss + gamma*dist_nbs_loss
+
         return loss
 
-    @AutoFlow()
-    def debug(self):
-        alpha = 1
-        beta = 1000  
-        gamma = 1000
+    def local_pca(self, delta=0.1):
+        def _find_neighbors(P, n=8):
+            embeds = self.X_mean.value
+            dist = np.sum(np.square(P-embeds),axis=-1)
+            idx = np.argsort(dist)[::-1]      
+            nei = embeds[idx[:n+1], :]
+            return nei
 
-        full_cov=True  
+        X = _find_neighbors(self.Pnew.value, 8)
+        p, W = pca(X)
+        W = W/np.sqrt(np.sum(W*W))
+        Pnew = self.Pnew.value + W*delta
+        self.Pnew = Param(Pnew)
+        return Pnew
 
-        num_inducing = tf.shape(self.Z)[0]
-        psi1 = self.kern.eKxz(self.Z, self.X_mean, self.X_var)
-        psi2 = tf.reduce_sum(self.kern.eKzxKxz(self.Z, self.X_mean, self.X_var), 0)
-        Kuu = self.kern.K(self.Z) + tf.eye(num_inducing, dtype=float_type) * settings.numerics.jitter_level
-        Kus = self.kern.K(self.Z, self.Pnew)
-        sigma2 = self.likelihood.variance
-        sigma = tf.sqrt(sigma2)
-        L = tf.cholesky(Kuu)
-
-        A = tf.matrix_triangular_solve(L, tf.transpose(psi1), lower=True) / sigma
-        tmp = tf.matrix_triangular_solve(L, psi2, lower=True)
-        AAT = tf.matrix_triangular_solve(L, tf.transpose(tmp), lower=True) / sigma2
-        B = AAT + tf.eye(num_inducing, dtype=float_type)
-        LB = tf.cholesky(B)
-        c = tf.matrix_triangular_solve(LB, tf.matmul(A, self.Y), lower=True) / sigma
-        tmp1 = tf.matrix_triangular_solve(L, Kus, lower=True)
-        tmp2 = tf.matrix_triangular_solve(LB, tmp1, lower=True)
-        mean = tf.matmul(tmp2, c, transpose_a=True)
-        if full_cov:
-            var = self.kern.K(self.Pnew) + tf.matmul(tmp2, tmp2, transpose_a=True) \
-                  - tf.matmul(tmp1, tmp1, transpose_a=True)
-            shape = tf.stack([1, 1, tf.shape(self.Y)[1]])
-            var = tf.tile(tf.expand_dims(var, 2), shape)
-        else:
-            var = self.kern.Kdiag(self.Pnew) + tf.reduce_sum(tf.square(tmp2), 0) \
-                  - tf.reduce_sum(tf.square(tmp1), 0)
-            shape = tf.stack([1, tf.shape(self.Y)[1]])
-            var = tf.tile(tf.expand_dims(var, 1), shape)
-    
-        var_loss = tf.reduce_mean(var)
-
-        dist2 = tf.reduce_sum(tf.square(self.Pnew-self.Pinit))
-        dist_loss = tf.abs(dist2-self.r2)
-
-        if len(self.P_nbs) == 0:
-            dist_nbs_loss = tf.constant(0.0, dtype=tf.float64)
-        else:
-            dist_nbs2 = tf.reduce_sum(tf.square(self.Pnew-self.P_nbs), axis=-1)
-            dist_min2 = tf.reduce_min(dist_nbs2)
-            dist_nbs = self.r2 - dist_min2
-            dist_nbs_loss = dist_nbs
-
-        loss = alpha*var_loss + beta*dist_loss + gamma*dist_nbs_loss
-        return loss, var_loss, dist_loss, dist_nbs_loss
-
-
-def pca(X, r):
+def pca(X, r=1.0, n=0.0):
     evecs, evals = np.linalg.eigh(np.cov(X.T))
     print('\t evecs' ,evecs.shape)
     print('\t evals' ,evals.shape)
@@ -424,11 +433,15 @@ def pca(X, r):
     eve_sum = cumsum/sum_evecs
     print('\t evecs' ,evecs)
     print('\t eve_sum' ,eve_sum)
+    if n > 0:
+        W = evals[:,i]
+        W = W[:,:n]
+        return (X - X.mean(0)).dot(W), W
     idx = np.argmin(eve_sum-r)
     print('\t idx' ,idx)
     W = evals[:, i]
     W = W[:, :idx+1]
-    return (X - X.mean(0)).dot(W)
+    return (X - X.mean(0)).dot(W), W
 
 
 def resample(pos, n):

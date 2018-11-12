@@ -39,12 +39,12 @@ def plot_skeleton(xyz, ax):
     ax.scatter(xyz[:,0], xyz[:,2], xyz[:,1])
     #key points
     key_pts = xyz[0:3,:]
-    ax.plot(key_pts[:,0], key_pts[:,2], key_pts[:,1], c=colors['steelkyblue'])
+    ax.plot(key_pts[:,0], key_pts[:,2], key_pts[:,1])
     #head
     head = xyz[3:4,:]
     head = np.row_stack([key_pts[2,:],head])
     print(head)
-    ax.plot(head[:,0], head[:,2], head[:,1], c=colors['steelkyblue'])
+    ax.plot(head[:,0], head[:,2], head[:,1])
 
     #legs
     legf_l = xyz[4:7,:]
@@ -57,15 +57,15 @@ def plot_skeleton(xyz, ax):
     legb_l = np.row_stack([key_pts[0,:],legb_l]) 
     legb_r = np.row_stack([key_pts[0,:],legb_r])
 
-    ax.plot(legf_l[:,0], legf_l[:,2], legf_l[:,1], c=colors['steelkyblue'])
-    ax.plot(legf_r[:,0], legf_r[:,2], legf_r[:,1], c=colors['steelkyblue']) 
-    ax.plot(legb_l[:,0], legb_l[:,2], legb_l[:,1], c=colors['steelkyblue'])   
-    ax.plot(legb_r[:,0], legb_r[:,2], legb_r[:,1], c=colors['steelkyblue'])  
+    ax.plot(legf_l[:,0], legf_l[:,2], legf_l[:,1])
+    ax.plot(legf_r[:,0], legf_r[:,2], legf_r[:,1]) 
+    ax.plot(legb_l[:,0], legb_l[:,2], legb_l[:,1])   
+    ax.plot(legb_r[:,0], legb_r[:,2], legb_r[:,1])  
 
     #tail
     tail = xyz[16:]
     tail = np.row_stack([key_pts[0,:],tail]);
-    return ax.plot(tail[:,0], tail[:,2], tail[:,1], c=colors['steelkyblue'])
+    return ax.plot(tail[:,0], tail[:,2], tail[:,1])
 
 
 def on_button_press(event):
@@ -83,8 +83,23 @@ def on_button_press(event):
     global key_list
 
     n_sample = 5
-    if event.inaxes != main_ax:
-        return
+    if event.inaxes==None or event.inaxes==axgen or event.inaxes==axnav or event.inaxes==axloc:
+        return 
+
+    for i in range(1): 
+        if  np.in1d(event.inaxes, f_axes[i]): 
+            print('\n>>>>>>>>>>>> choose drawing window...')
+            ax_chosen.spines['top'].set_visible(False)
+            ax_chosen.spines['bottom'].set_visible(False)
+            print('choose axes')
+            ax_chosen = f_axes[i][0]
+            ax_skeleton = f_axes[i][1]
+            ax_horse = f_axes[i][2]
+            ax_chosen.spines['top'].set_visible(True)
+            ax_chosen.spines['bottom'].set_visible(True)
+
+            event.canvas.draw()
+            return
 
     x = event.xdata
     y = event.ydata
@@ -307,15 +322,14 @@ if __name__ == '__main__':
     X_mean = gpflow.gplvm.PCA_reduce(Y, Q)
 
     # GPLVM
-
-    print('\n>>>>>>>>>>>> computing BayesianGPLVM...')
     # permutation:生成随机序列, 然后取前20, 20*5
     # 所谓inducing points可能就是一些假设存在于潜在空间中的点吧
     Z = np.random.permutation(X_mean.copy())[:M]
     k = ekernels.Add([ekernels.RBF(3, ARD=False, active_dims=[0,1,2]) ,
              ekernels.Linear(3, ARD=False, active_dims=[3, 4, 5])  ])
     X_var = 0.1*np.ones((N, Q))
-
+    #k = ekernels.RBF(5, ARD=False, active_dims=[0,1,2,3,4]) 
+    print('\n>>>>>>>>>>>> computing BayesianGPLVM...')
     m = gpflow.gplvm.BayesianGPLVM(X_mean=X_mean, X_var=X_var, Y=Y, kern=k, M=M, Z=Z)
     linit = m.compute_log_likelihood()
     #m.optimize(method = tf.train.GradientDescentOptimizer(0.02))
@@ -342,7 +356,7 @@ if __name__ == '__main__':
     print('\t size of edges', edges.shape)
 
 
-    ######################################################  figure  ##########################################
+    ######################################################  figure  ##############
     print('\n>>>>>>>>>>>> prepare plot inits...')
     bool_drawing = False
     key_spl = []
@@ -350,21 +364,17 @@ if __name__ == '__main__':
     Nav = Nav = navigate.Navigator(embeds, m)
 
     print('\n>>>>>>>>>>>> ploting...')
-    fig = plt.figure(facecolor='silver', figsize=(10,5))
-    plt.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
+    fig = plt.figure(facecolor='grey', figsize=(10,5))
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.9, bottom=0.1)
     grid = gridspec.GridSpec(3, 5, wspace=0.05)
 
     ## 主图
     main_ax = fig.add_subplot(grid[:, 0:3])
-    #main_ax.patch.set_facecolor(colors['ghostwhite'])
-    main_ax.spines['top'].set_color('none')
-    main_ax.spines['right'].set_color('none')
+    main_ax.patch.set_facecolor(colors['silver'])
     main_ax.xaxis.set_ticks_position('bottom') 
-    main_ax.spines['bottom'].set_position(('data', 0))
-    main_ax.spines['bottom'].set_color(colors['silver']) 
+    main_ax.spines['bottom'].set_position(('data', 0)) 
     main_ax.yaxis.set_ticks_position('left') 
     main_ax.spines['left'].set_position(('data', 0))
-    main_ax.spines['left'].set_color(colors['silver'])
 
     main_ax.scatter(embeds[:,0], embeds[:,1], s=5) #floyd
 
@@ -375,22 +385,33 @@ if __name__ == '__main__':
         main_ax.plot(edge[:,0], edge[:,1], color='lightblue')'''
 
     fig.canvas.mpl_connect('button_press_event', on_button_press)
-    #main_ax.set_title('Embedding space')
+    main_ax.set_title('Bayesian GPLVM')
     main_ax.axis('on')
+
+
+    callback = Index()
+    axgen = plt.axes([0.6, 0.03, 0.09, 0.045])
+    axloc = plt.axes([0.7, 0.03, 0.09, 0.045])
+    axnav = plt.axes([0.8, 0.03, 0.09, 0.045])
+    bgen = Button(axgen, 'generate')
+    bgen.on_clicked(callback.generate)  
+    bloc = Button(axloc, 'locate')
+    bloc.on_clicked(callback.locate)
+    bnav = Button(axnav, 'navigate')
+    bnav.on_clicked(callback.navigate)
 
     ## 侧面的图
     f_axes = []
     for i in range(1):
         side_ax = fig.add_subplot(grid[i, 3:5])
-        #side_ax.patch.set_facecolor(colors['ghostwhite'])
         side_ax.set_xticks([])  
         side_ax.set_yticks([]) 
         for sp in side_ax.spines.values():
-            #sp.set_color(colors['dimgrey'])
-            #sp.set_linewidth(5)
+            sp.set_color(colors['dimgrey'])
+            sp.set_linewidth(5)
             sp.set_visible(False) 
      
-        grid_side = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=grid[i,3:5], wspace=0.0, hspace=0.0)
+        grid_side = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=grid[i,3:5], wspace=0.1, hspace=0.1)
 
         fj = [side_ax]
         f_axesj = [side_ax.axes]
@@ -423,34 +444,18 @@ if __name__ == '__main__':
     n1= 27
     n2 = 26
     ske = (skeletons[n1,:]+skeletons[n2,:])/2
-
+    '''ax = f_axes[2][1]
+    f_axes[2][2].clear()
+    ax.clear()
+    plot_skeleton(ske, ax)'''
          
-    ax_show = f_axes[0][0]
+    ax_chosen = f_axes[0][0]
     ax_skeleton = f_axes[0][1]
     ax_horse = f_axes[0][2]
+    ax_chosen.spines['top'].set_visible(True)
+    ax_chosen.spines['bottom'].set_visible(True)
 
-    ax_skeleton.axis('off') 
-    ax_horse.axis('off') 
-
-
-    ##### buttons ###########
-    ax_button = fig.add_subplot(grid[1:3, 3:5])
-    ax_button.patch.set_facecolor(colors['silver'])
-    ax_button.set_xticks([])  
-    ax_button.set_yticks([])
-    callback = Index()
-    grid_button = gridspec.GridSpecFromSubplotSpec(12, 5, subplot_spec=grid[1:3,3:5], wspace=0.0, hspace=0.0)
-    axgen = fig.add_subplot(grid_button[9, 0])
-    axloc = fig.add_subplot(grid_button[5, 0])
-    axnav = fig.add_subplot(grid_button[0, 0])
-    bgen = Button(axgen, 'generate')
-    bgen.on_clicked(callback.generate)  
-    bloc = Button(axloc, 'locate')
-    bloc.on_clicked(callback.locate)
-    bnav = Button(axnav, 'navigate')
-    bnav.on_clicked(callback.navigate)
-
-    ###################################################### deep learning things ##########################################3
+    ## deep learning things
     modelPath = 'myNet/trained_models/horse2horse'
     mustSavePly = True
 
